@@ -35,19 +35,19 @@ my $logging_enabled = 1;
 my $debug_dump_each_mail = 1;
 
 ## Parse args
-my $encrypt_mode   = 'pgpmime';
-my $inline_flatten = 0;
-my @recipients     = ();
-my $gpg_home       = 0;
-my %gpg_params = ();
-my %rewrite_rules = ();
-my $dump_fails_to_mbox = 0;
-my $fail_mbox_file = "";
-my $sysadmin_email = "";
+my $encrypt_mode   	= 'pgpmime';
+my $inline_flatten 	= 0;
+my @recipients     	= ();
+my $gpg_home       	= 0;
+my %gpg_params 		= ();
+my %rewrite_rules	= ();
+my $dump_fails_to_mbox	= 0;
+my $fail_mbox_file	= "";
+my $sysadmin_email	= "";
 my $notification_email_template_file = "";
 
-my $email_dumpfile_prefix = "/var/log/exim4/mail-";
-my $debug_logfile_name = "/var/log/exim4/cryptowrapper.debug.log";
+my $email_dumpfile_prefix 	= "/var/log/exim4/mail-";
+my $debug_logfile_name 		= "/var/log/exim4/cryptowrapper.debug.log";
 
 my @no_encrypt_to = ();
 
@@ -83,31 +83,45 @@ my @no_encrypt_to = ();
         	die "inline-flatten option makes no sense with \"pgpmime\" encrypt-mode. See --help\n"
 	}
 }
+
 ## Set the home environment variable from the user running the script
-  $ENV{HOME} = (getpwuid($>))[7];
+$ENV{HOME} = (getpwuid($>))[7];
 
 ## Read the plain text email
+my $plain = "";
+{
+	local $/=undef;
+	$plain = <STDIN>;
+}
+my @plain_lines = split '\n',$plain;
 
-  my $plain = "";
-  {
-      local $/=undef;
-      $plain = <STDIN>;
-  }
-  my @plain_lines = split '\n',$plain;
+
 
 &log("INFO: processing mail");
 
-&dumpMail($plain);
+# dump the mail before we do anything to it.
+&dumpMail($plain) if($debug_dump_each_mail);
 
-my $header = &extractHeaders(@plain_lines);
+## some global variables
+# just the email headers as string blob
+my $header = "";
+
+# a string comprised of the original addressees of the mail
+my $original_destinations = "";
+
+# a string comprised of the interpreted addressees of the mail after applying rewrite rules
+my $interpreted_destinations = "";
+
+
+
+
+$header = &extractHeaders(@plain_lines);
+
 push @recipients, &getDestinations(@plain_lines);
-
-my $originaldestinations = join(', ', @recipients);
+$original_destinations = join(', ', @recipients);
 
 @recipients = @{ &rw_rewrite_address_list(\@recipients, \%rewrite_rules) };
-
-my $interpreteddestinations = join(', ', @recipients);
-
+$interpreted_destinations = join(', ', @recipients);
 
 if(scalar @recipients > 0) {
         if(!&can_encrypt_to(\@recipients)){
@@ -130,10 +144,10 @@ else {
 &log("INFO: proceeding to encrypt mail to: ".join(", ", @recipients));
 
 ## Object for GPG encryption
-  my $gpg = new Mail::GnuPG(%gpg_params);
+my $gpg = new Mail::GnuPG(%gpg_params);
 
 ## Make sure we have the appropriate public key for all recipients
-  foreach( @recipients ){
+foreach( @recipients ){
      my $target = $_;
      unless( $gpg->has_public_key( $target ) ){
 	&sendErrorMailAndLog("ERROR: missing key for $target. Not encrypting mail!");
@@ -144,16 +158,16 @@ else {
         #}
         exit 1;
      }
-  }
+}
 
 ## Parse the email
-  my $mime;
-  {
+my $mime;
+{
      my $parser = new MIME::Parser();
      $parser->decode_bodies(1);
      $parser->output_to_core(1);
      $mime = $parser->parse_data( $plain );
-  }
+}
 
 ## Test if it is already encrypted
   if( $gpg->is_encrypted( $mime ) ){
@@ -372,16 +386,14 @@ sub log {
 
 ## log a mail to an individual logfile
 sub dumpMail {
-	if($debug_dump_each_mail) {
-		my $dumpname = "$email_dumpfile_prefix".Time::HiRes::time;
-		open(my $fh, ">>", "$dumpname");
-		if($fh) {
-			&log("DEBUG: logging mail to \"$dumpname\"");
-			print $fh shift;
-			close($fh);
-		} else {
-			&log("ERROR: failed to open \"$dumpname\": $!");
-		}
+	my $dumpname = "$email_dumpfile_prefix".Time::HiRes::time;
+	open(my $fh, ">>", "$dumpname");
+	if($fh) {
+		&log("DEBUG: logging mail to \"$dumpname\"");
+		print $fh shift;
+		close($fh);
+	} else {
+		&log("ERROR: failed to open \"$dumpname\": $!");
 	}
 }
 
@@ -431,7 +443,7 @@ sub extractHeaders {
 sub sendErrorMailAndLog {
 	my $errormsg = shift;
 	&log($errormsg);
-	&sendAdminNotificationMail($sysadmin_email, $notification_email_template_file, $errormsg, $originaldestinations, $interpreteddestinations, $header);
+	&sendAdminNotificationMail($sysadmin_email, $notification_email_template_file, $errormsg, $original_destinations, $interpreted_destinations, $header);
 }
 
 ## generates an admin notification mail and tries to send it to the admin address
