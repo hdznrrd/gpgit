@@ -45,6 +45,7 @@ my $dump_fails_to_mbox	= 0;
 my $fail_mbox_file	= "";
 my $sysadmin_email	= "";
 my $notification_email_template_file = "";
+my $sanitize_bugzilla_headers	= 0;
 
 my $email_dumpfile_prefix 	= "/var/log/exim4/mail-";
 my $debug_logfile_name 		= "/var/log/exim4/cryptowrapper.debug.log";
@@ -74,6 +75,7 @@ my @no_encrypt_to = ();
 		elsif( $key eq '--notification-email-template') { $notification_email_template_file = shift @args; }
 		elsif( $key eq '--debug-logfile') 		{ $debug_logfile_name = shift @args; }
 		elsif( $key eq '--email-dumpfile-prefix')	{ $email_dumpfile_prefix = shift @args; }
+		elsif( $key eq '--sanitize-bugzilla-headers')	{ $sanitize_bugzilla_headers = 1; }
 		elsif( $key =~ /^.+\@.+$/ )			{ push @recipients, $key; }
 		else {
 			die "Bad argument: $key\n";
@@ -93,9 +95,6 @@ my $plain = "";
 	local $/=undef;
 	$plain = <STDIN>;
 }
-my @plain_lines = split '\n',$plain;
-
-
 
 ## some global variables used to build error report mails
 #
@@ -111,6 +110,19 @@ my $interpreted_destinations = "";
 
 
 &log("INFO: processing mail");
+
+if($sanitize_bugzilla_headers) {
+	&log("DEBUG: Sanitizing Bugzilla headers");
+	# matches any X-Bugzilla.... header including the rest of the line
+	#   as well as the newline character.
+	# if the next line starts with whitespace + non-whitespace combo
+	# we're dealing with a line-broken long header entry.
+	# we're removing those as well.
+	$plain =~ s/^X-Bugzilla.+?(\n\s\S.+?)*\n(?!\s\S)//mg;
+}
+
+my @plain_lines = split '\n',$plain;
+
 
 # dump the mail before we do anything to it.
 &dumpMail($plain) if($debug_dump_each_mail);
