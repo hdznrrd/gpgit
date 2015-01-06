@@ -49,7 +49,7 @@ my $sysadmin_email	= "";
 my $notification_email_template_file = "";
 my $sanitize_bugzilla_headers	= 0;
 
-my $email_dumpfile_prefix 	= "/var/log/exim4/mail-";
+my $email_dump_mbox_file 	= "/var/log/exim4/dump.mbox";
 my $debug_logfile_name 		= "/var/log/exim4/cryptowrapper.debug.log";
 
 my $debug_no_send_mail	= 0;
@@ -80,7 +80,7 @@ my @no_encrypt_to = ();
 		elsif( $key eq '--sysadmin-email')		{ $sysadmin_email = shift @args; }
 		elsif( $key eq '--notification-email-template') { $notification_email_template_file = shift @args; }
 		elsif( $key eq '--debug-logfile') 		{ $debug_logfile_name = shift @args; }
-		elsif( $key eq '--email-dumpfile-prefix')	{ $email_dumpfile_prefix = shift @args; }
+		elsif( $key eq '--email-dump-mbox-file')	{ $email_dump_mbox_file = shift @args; }
 		elsif( $key eq '--sanitize-bugzilla-headers')	{ $sanitize_bugzilla_headers = 1; }
 		elsif( $key eq '--debug-no-send-mail')		{ $debug_no_send_mail = 1; }
 		elsif( $key =~ /^.+\@.+$/ )			{ push @recipients, $key; }
@@ -132,7 +132,7 @@ my @plain_lines = split '\n',$plain;
 
 
 # dump the mail before we do anything to it.
-&dumpMail($plain) if($debug_dump_each_mail);
+&writeToMbox($email_dump_mbox_file, $plain) if($debug_dump_each_mail);
 
 # we might have to send the admin an error report.
 # for this we want to include headers.
@@ -147,7 +147,7 @@ $interpreted_destinations = join(', ', @recipients);
 if(scalar @recipients > 0) {
         if(!&can_encrypt_to(\@recipients)){
 		&sendErrorMailAndLog("ERROR: some receipients blacklisted. Not sending email. ".join(", ", @recipients));
-		&writeToMbox($plain) if($dump_fails_to_mbox);
+		&writeToMbox($fail_mbox_file, $plain) if($dump_fails_to_mbox);
 		print &generateWarningMail();
                 exit 1;
         }
@@ -157,7 +157,7 @@ if(scalar @recipients > 0) {
 }
 else {
 	&sendErrorMailAndLog("ERROR: no receipient extracted from mail. Not sending email.");
-	&writeToMbox($plain) if($dump_fails_to_mbox);
+	&writeToMbox($fail_mbox_file, $plain) if($dump_fails_to_mbox);
 	print &generateWarningMail();
         exit 1;
 }
@@ -172,7 +172,7 @@ foreach( @recipients ){
      my $target = $_;
      unless( $gpg->has_public_key( $target ) ){
 	&sendErrorMailAndLog("ERROR: missing key for $target. Not sending email.");
-	&writeToMbox($plain) if($dump_fails_to_mbox);
+	&writeToMbox($fail_mbox_file, $plain) if($dump_fails_to_mbox);
 	print &generateWarningMail();
         #while(<STDIN>){
            #print;
@@ -397,29 +397,16 @@ sub getLoggingTime {
 sub log {
 	if($logging_enabled) {
 		my $msg = shift;
-     		print &getLoggingTime(), " - ", $msg, "$/";
+     		print &getLoggingTime(), " - ", $reference , " - ", $msg, "$/";
         	open(my $fh, ">>", "$debug_logfile_name");
         	print $fh &getLoggingTime(), " - ", $msg, "$/";
         	close($fh);
 	}
 }
 
-
-## log a mail to an individual logfile
-sub dumpMail {
-	my $dumpname = "$email_dumpfile_prefix$reference";
-	open(my $fh, ">>", "$dumpname");
-	if($fh) {
-		&log("DEBUG: logging mail to \"$dumpname\"");
-		print $fh shift;
-		close($fh);
-	} else {
-		&log("ERROR: failed to open \"$dumpname\": $!");
-	}
-}
-
 ## log a mail by appending it to an mbox file
 sub writeToMbox {
+	my $mbox_file_name = shift;
 	my $content = shift;
 	
 	# prepend our own reference
@@ -430,7 +417,7 @@ sub writeToMbox {
 
 	# open the mbox file (or create it)
 	my $mgr = new Mail::Box::Manager;
-	my $folder = $mgr->open(folder => "$fail_mbox_file",
+	my $folder = $mgr->open(folder => "$mbox_file_name",
 				create => 1,
 				type => 'Mail::Box::Mbox',
 				access => 'rw');
