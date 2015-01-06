@@ -97,12 +97,8 @@ my @plain_lines = split '\n',$plain;
 
 
 
-&log("INFO: processing mail");
-
-# dump the mail before we do anything to it.
-&dumpMail($plain) if($debug_dump_each_mail);
-
-## some global variables
+## some global variables used to build error report mails
+#
 # just the email headers as string blob
 my $header = "";
 
@@ -114,7 +110,13 @@ my $interpreted_destinations = "";
 
 
 
+&log("INFO: processing mail");
 
+# dump the mail before we do anything to it.
+&dumpMail($plain) if($debug_dump_each_mail);
+
+# we might have to send the admin an error report.
+# for this we want to include headers.
 $header = &extractHeaders(@plain_lines);
 
 push @recipients, &getDestinations(@plain_lines);
@@ -125,7 +127,7 @@ $interpreted_destinations = join(', ', @recipients);
 
 if(scalar @recipients > 0) {
         if(!&can_encrypt_to(\@recipients)){
-		&sendErrorMailAndLog("WARNING: not encrypting mail to blacklisted receipients: ".join(", ", @recipients));
+		&sendErrorMailAndLog("ERROR: some receipients blacklisted. Not sending email. ".join(", ", @recipients));
 		&writeToMbox($plain);
 		print &sanitizeMail($plain);
                 exit 1;
@@ -135,7 +137,7 @@ if(scalar @recipients > 0) {
         }
 }
 else {
-	&sendErrorMailAndLog("ERROR: no receipient extracted from mail.");
+	&sendErrorMailAndLog("ERROR: no receipient extracted from mail. Not sending email.");
 	&writeToMbox($plain);
 	print &sanitizeMail($plain);
         exit 1;
@@ -150,7 +152,7 @@ my $gpg = new Mail::GnuPG(%gpg_params);
 foreach( @recipients ){
      my $target = $_;
      unless( $gpg->has_public_key( $target ) ){
-	&sendErrorMailAndLog("ERROR: missing key for $target. Not encrypting mail!");
+	&sendErrorMailAndLog("ERROR: missing key for $target. Not sending email.");
 	&writeToMbox($plain);
 	print &sanitizeMail($plain);
         #while(<STDIN>){
