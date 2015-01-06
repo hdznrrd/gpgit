@@ -50,6 +50,8 @@ my $sanitize_bugzilla_headers	= 0;
 my $email_dumpfile_prefix 	= "/var/log/exim4/mail-";
 my $debug_logfile_name 		= "/var/log/exim4/cryptowrapper.debug.log";
 
+my $debug_no_send_mail	= 0;
+
 my @no_encrypt_to = ();
 
 {
@@ -76,6 +78,7 @@ my @no_encrypt_to = ();
 		elsif( $key eq '--debug-logfile') 		{ $debug_logfile_name = shift @args; }
 		elsif( $key eq '--email-dumpfile-prefix')	{ $email_dumpfile_prefix = shift @args; }
 		elsif( $key eq '--sanitize-bugzilla-headers')	{ $sanitize_bugzilla_headers = 1; }
+		elsif( $key eq '--debug-no-send-mail')		{ $debug_no_send_mail = 1; }
 		elsif( $key =~ /^.+\@.+$/ )			{ push @recipients, $key; }
 		else {
 			die "Bad argument: $key\n";
@@ -489,19 +492,18 @@ sub sendAdminNotificationMail {
 
 	return if(!$sysadminaddress);
 
-	# TODO: debug, remove
-	print "PIPECOMMAND: |mail -s \"Failed to encrypt outgoing email\" $sysadminaddress\n";
-	print &buildAdminNotificationMailBody(@_);
-	return;
-
-	open(my $pipe, "|mail -s \"Failed to encrypt outgoing email\" $sysadminaddress");
-	if(!$pipe) {
-		&log("ERROR: failed to open pipe to 'mail': $!");
-		return;
+	if($debug_no_send_mail) {
+		print "PIPECOMMAND: |mail -s \"Failed to encrypt outgoing email\" $sysadminaddress\n";
+		print &buildAdminNotificationMailBody(@_);
+	} else {
+		open(my $pipe, "|mail -s \"Failed to encrypt outgoing email\" $sysadminaddress");
+		if(!$pipe) {
+			&log("ERROR: failed to open pipe to 'mail': $!");
+		} else {
+			print $pipe &buildAdminNotificationMailBody(@_);
+			close($pipe);
+		}
 	}
-
-	print $pipe &buildAdminNotificationMailBody(@_);
-	close($pipe);
 }
 
 ## builds the mail body of an admin notification mail
