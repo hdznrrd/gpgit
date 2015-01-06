@@ -52,6 +52,8 @@ my $debug_logfile_name 		= "/var/log/exim4/cryptowrapper.debug.log";
 
 my $debug_no_send_mail	= 0;
 
+my $reference		= &generateReference();
+
 my @no_encrypt_to = ();
 
 {
@@ -437,8 +439,6 @@ sub generateReference {
 
 ## sanitize a mail by removing sensitive content
 sub generateWarningMail {
-	my $ref = &generateReference();
-
 	return <<EOM
 From: "Cryptowrapper <root\@lanl.p3ki.com>"
 Bcc: $original_destinations
@@ -449,7 +449,7 @@ at you (and/or other parties) could not be encrypted for everyone.
 
 Please contact your system administrator.
 
-Reference: $ref
+Reference: $reference
 
 EOM
 }
@@ -525,8 +525,7 @@ sub buildAdminNotificationMailBody {
 	$tpl =~ s/{{originaldestionations}}/$originaldestionations/g;
 	$tpl =~ s/{{interpreteddestinations}}/$interpreteddestionations/g;
 
-	my $ref = &generateReference();
-	$tpl =~ s/{{reference}}/$ref/g;
+	$tpl =~ s/{{reference}}/$reference/g;
 
 	$header = "> ".join("\n> ",split /\n/, $header);
 
