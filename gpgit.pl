@@ -29,6 +29,8 @@ use Mail::Header;
 use Mail::Field;
 use Data::Dumper;
 use Time::HiRes;
+use Mail::Box::Manager;
+use Mail::Box::Message;
 
 my $fail_if_already_encrypted = 1;
 my $logging_enabled = 1;
@@ -145,7 +147,7 @@ $interpreted_destinations = join(', ', @recipients);
 if(scalar @recipients > 0) {
         if(!&can_encrypt_to(\@recipients)){
 		&sendErrorMailAndLog("ERROR: some receipients blacklisted. Not sending email. ".join(", ", @recipients));
-		&writeToMbox($plain);
+		&writeToMbox($plain) if($dump_fails_to_mbox);
 		print &generateWarningMail();
                 exit 1;
         }
@@ -155,7 +157,7 @@ if(scalar @recipients > 0) {
 }
 else {
 	&sendErrorMailAndLog("ERROR: no receipient extracted from mail. Not sending email.");
-	&writeToMbox($plain);
+	&writeToMbox($plain) if($dump_fails_to_mbox);
 	print &generateWarningMail();
         exit 1;
 }
@@ -170,7 +172,7 @@ foreach( @recipients ){
      my $target = $_;
      unless( $gpg->has_public_key( $target ) ){
 	&sendErrorMailAndLog("ERROR: missing key for $target. Not sending email.");
-	&writeToMbox($plain);
+	&writeToMbox($plain) if($dump_fails_to_mbox);
 	print &generateWarningMail();
         #while(<STDIN>){
            #print;
@@ -416,19 +418,27 @@ sub dumpMail {
 	}
 }
 
-## log a mail by appending it to an mbox-like file
+## log a mail by appending it to an mbox file
 sub writeToMbox {
-	if($dump_fails_to_mbox) {
-		my @mail = @_;
-		open(my $fh, ">>", "$fail_mbox_file");
-		if($fh) {
-			print $fh join("\n",@mail);
-			print $fh "\n";
-			close($fh);
-		} else {
-			&log("ERROR: failed to open mbox \"$fail_mbox_file\": $!");
-		}
-	}
+	my $content = shift;
+	
+	# prepend our own reference
+	$content = "X-Cryptowrapper-Reference: $reference\n".$content;
+
+	# now parse it into a message
+	my $mail = Mail::Box::Message->read($content);
+
+	# open the mbox file (or create it)
+	my $mgr = new Mail::Box::Manager;
+	my $folder = $mgr->open(folder => "$fail_mbox_file",
+				create => 1,
+				type => 'Mail::Box::Mbox',
+				access => 'rw');
+
+	# off we go
+	$folder->addMessage($mail);
+
+	$folder->close();
 }
 
 sub generateReference {
