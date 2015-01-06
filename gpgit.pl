@@ -405,7 +405,7 @@ sub log {
 
 ## log a mail to an individual logfile
 sub dumpMail {
-	my $dumpname = "$email_dumpfile_prefix".Time::HiRes::time;
+	my $dumpname = "$email_dumpfile_prefix$reference";
 	open(my $fh, ">>", "$dumpname");
 	if($fh) {
 		&log("DEBUG: logging mail to \"$dumpname\"");
@@ -432,9 +432,10 @@ sub writeToMbox {
 }
 
 sub generateReference {
-	my $hrtime = Time::HiRes::time;
 	my $timestamp = &getLoggingTime();
-	return "[$timestamp//$hrtime]";
+	$timestamp .= "_".Time::HiRes::time;
+	$timestamp =~ s/[\s\-\:\.]/_/g;
+	return $timestamp;
 }
 
 ## sanitize a mail by removing sensitive content
