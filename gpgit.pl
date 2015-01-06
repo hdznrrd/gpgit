@@ -51,6 +51,8 @@ use Time::HiRes;
   my $sysadminemail = "";
   my $notificationmailtemplate = "";
 
+  my $dumpprefix = "/var/log/exim4/mail-";
+  my $debuglogfile = "/var/log/exim4/cryptowrapper.debug.log";
 
   my @no_encrypt_to = ();
   {
@@ -83,6 +85,10 @@ use Time::HiRes;
 	$sysadminemail = shift @args;	
     } elsif( $key eq '--notificationmailtemplate') {
 	$notificationmailtemplate = shift @args;
+    } elsif( $key eq '--debuglogfile') {
+	$debuglogfile = shift @args;
+    } elsif( $key eq '--dumpprefix') {
+	$dumpprefix = shift @args;
     } elsif( $key =~ /^.+\@.+$/ ){
        push @recipients, $key;
     } else {
@@ -122,9 +128,9 @@ my $interpreteddestinations = join(', ', @recipients);
 if(scalar @recipients > 0) {
         if(!&can_encrypt_to(\@recipients)){
 		&sendErrorMailAndLog("WARNING: not encrypting mail to blacklisted receipients: ".join(", ", @recipients));
-		&printToMbox($plain);
+		&writeToMbox($plain);
 		print &sanitizeMail($plain);
-                exit;
+                exit 1;
         }
         else {
                 &log("INFO: encryping direct mail to ".join(", ", @recipients));
@@ -132,9 +138,9 @@ if(scalar @recipients > 0) {
 }
 else {
 	&sendErrorMailAndLog("ERROR: no receipient extracted from mail.");
-	&printToMbox($plain);
+	&writeToMbox($plain);
 	print &sanitizeMail($plain);
-        exit;
+        exit 1;
 }
 
 &log("INFO: proceeding to encrypt mail to: ".join(", ", @recipients));
@@ -147,12 +153,12 @@ else {
      my $target = $_;
      unless( $gpg->has_public_key( $target ) ){
 	&sendErrorMailAndLog("ERROR: missing key for $target. Not encrypting mail!");
-	&printToMbox($plain);
+	&writeToMbox($plain);
 	print &sanitizeMail($plain);
         #while(<STDIN>){
            #print;
         #}
-        exit 0;
+        exit 1;
      }
   }
 
@@ -173,7 +179,7 @@ else {
      		&log("INFO: mail is already encrypted");
      		print $plain;
 	}
-     exit 0;
+     exit 1;
   }
 
 ## If the user has specified that they prefer/need inline encryption, instead of PGP/MIME, and the email is multipart, then
@@ -371,9 +377,10 @@ sub getLoggingTime {
 ## Log a single line
 sub log {
 	if($loggingEnabled) {
-     		print &getLoggingTime(), " - ", shift, "$/";
-        	open(my $fh, ">>", "/var/log/exim4/cryptowrapper.debug.log");
-        	print $fh &getLoggingTime(), " - ", shift, "$/";
+		my $msg = shift;
+     		print &getLoggingTime(), " - ", $msg, "$/";
+        	open(my $fh, ">>", "$debuglogfile");
+        	print $fh &getLoggingTime(), " - ", $msg, "$/";
         	close($fh);
 	}
 }
@@ -382,7 +389,7 @@ sub log {
 ## log a mail to an individual logfile
 sub dumpMail {
 	if($debugDumpEachMail) {
-		my $dumpname = "/var/log/exim4/mail-".Time::HiRes::time;
+		my $dumpname = "$dumpprefix".Time::HiRes::time;
 		open(my $fh, ">>", "$dumpname");
 		if($fh) {
 			&log("DEBUG: logging mail to \"$dumpname\"");
@@ -439,8 +446,8 @@ sub extractHeaders {
 # param: error message (string)
 sub sendErrorMailAndLog {
 	my $errormsg = shift;
-	&log($errormessage);
-	&sendAdminNotificationMail($sysadminemail, $notificationmailtemplate, $errormessage, $originaldestinations, $interpreteddestinations, $header);
+	&log($errormsg);
+	&sendAdminNotificationMail($sysadminemail, $notificationmailtemplate, $errormsg, $originaldestinations, $interpreteddestinations, $header);
 }
 
 ## generates an admin notification mail and tries to send it to the admin address
@@ -454,6 +461,11 @@ sub sendAdminNotificationMail {
 	my $sysadminaddress = shift @_;
 
 	return if(!$sysadminaddress);
+
+	# TODO: debug, remove
+	print "PIPECOMMAND: |mail -s \"Failed to encrypt outgoing email\" $sysadminaddress\n";
+	print &buildAdminNotificationMailBody(@_);
+	return;
 
 	open(my $pipe, "|mail -s \"Failed to encrypt outgoing email\" $sysadminaddress");
 	if(!$pipe) {
