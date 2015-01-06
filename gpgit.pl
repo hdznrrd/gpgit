@@ -66,34 +66,22 @@ use Time::HiRes;
        unless( defined $encrypt_mode && grep( $encrypt_mode eq $_, 'prefer-inline', 'pgpmime', 'inline-or-plain' ) ){
          die "Bad value for --encrypt-mode\n";
        }
-    } elsif( $key eq '--gpg-home' ){
-        $gpg_params{'keydir'} = shift @args;
-    } elsif( $key eq '--gpg-path' ){
-        $gpg_params{'gpg_path'} = shift @args;
-    } elsif( $key eq '--always-trust' ){
-        $gpg_params{'always_trust'} = 1;
-    } elsif( $key eq '--inline-flatten' ){
-           $inline_flatten = 1;
-    } elsif( $key eq '--no-encrypt-to' ){
-	push @no_encrypt_to, shift @args;
-    } elsif( $key eq '--rewrite-config' ){
-	%rewrite_rules = %{ &rw_parse_config(&rw_read_config(shift @args)) };
-    } elsif( $key eq '--failure-mbox-file' ){
-        $dump_fails_to_mbox = 1;
-        $fail_mbox_file = shift @args;
-    } elsif( $key eq '--sysadmin-email') {
-	$sysadmin_email = shift @args;	
-    } elsif( $key eq '--notification-email-template') {
-	$notification_email_template_file = shift @args;
-    } elsif( $key eq '--debug-logfile') {
-	$debug_logfile_name = shift @args;
-    } elsif( $key eq '--email-dumpfile-prefix') {
-	$email_dumpfile_prefix = shift @args;
-    } elsif( $key =~ /^.+\@.+$/ ){
-       push @recipients, $key;
-    } else {
-           die "Bad argument: $key\n";
     }
+	elsif( $key eq '--gpg-home' ) 			{ $gpg_params{'keydir'} = shift @args; }
+	elsif( $key eq '--gpg-path' )			{ $gpg_params{'gpg_path'} = shift @args; }
+	elsif( $key eq '--always-trust' )		{ $gpg_params{'always_trust'} = 1; }
+	elsif( $key eq '--inline-flatten' )		{ $inline_flatten = 1; }
+	elsif( $key eq '--no-encrypt-to' )		{ push @no_encrypt_to, shift @args; }
+	elsif( $key eq '--rewrite-config' )		{ %rewrite_rules = %{ &rw_parse_config(&rw_read_config(shift @args)) }; }
+	elsif( $key eq '--failure-mbox-file' )		{ $dump_fails_to_mbox = 1; $fail_mbox_file = shift @args; }
+	elsif( $key eq '--sysadmin-email')		{ $sysadmin_email = shift @args; }
+	elsif( $key eq '--notification-email-template') { $notification_email_template_file = shift @args; }
+	elsif( $key eq '--debug-logfile') 		{ $debug_logfile_name = shift @args; }
+	elsif( $key eq '--email-dumpfile-prefix')	{ $email_dumpfile_prefix = shift @args; }
+	elsif( $key =~ /^.+\@.+$/ )			{ push @recipients, $key; }
+	else {
+		die "Bad argument: $key\n";
+	}
      }
      if( $inline_flatten && $encrypt_mode eq 'pgpmime' ){
         die "inline-flatten option makes no sense with \"pgpmime\" encrypt-mode. See --help\n"
