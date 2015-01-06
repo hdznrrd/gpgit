@@ -129,7 +129,7 @@ if(scalar @recipients > 0) {
         if(!&can_encrypt_to(\@recipients)){
 		&sendErrorMailAndLog("ERROR: some receipients blacklisted. Not sending email. ".join(", ", @recipients));
 		&writeToMbox($plain);
-		print &sanitizeMail($plain);
+		print &generateWarningMail();
                 exit 1;
         }
         else {
@@ -139,7 +139,7 @@ if(scalar @recipients > 0) {
 else {
 	&sendErrorMailAndLog("ERROR: no receipient extracted from mail. Not sending email.");
 	&writeToMbox($plain);
-	print &sanitizeMail($plain);
+	print &generateWarningMail();
         exit 1;
 }
 
@@ -154,7 +154,7 @@ foreach( @recipients ){
      unless( $gpg->has_public_key( $target ) ){
 	&sendErrorMailAndLog("ERROR: missing key for $target. Not sending email.");
 	&writeToMbox($plain);
-	print &sanitizeMail($plain);
+	print &generateWarningMail();
         #while(<STDIN>){
            #print;
         #}
@@ -414,12 +414,29 @@ sub writeToMbox {
 	}
 }
 
+sub generateReference {
+	my $hrtime = Time::HiRes::time;
+	my $timestamp = &getLoggingTime();
+	return "[$timestamp//$hrtime]";
+}
+
 ## sanitize a mail by removing sensitive content
-sub sanitizeMail {
-	my @mail = @_;
-	return "\n\n";
-	# TODO: instead of sledge hammering it, rewrite the mail using
-	# the original destinations and a new subject and body.	
+sub generateWarningMail {
+	my $ref = &generateReference();
+
+	return <<EOM
+From: "Cryptowrapper <root\@lanl.p3ki.com>"
+Bcc: $original_destinations
+Subject: WARNING: Encryption failure notification
+
+You're receiving this mail because a mail that was directed
+at you (and/or other parties) could not be encrypted for everyone.
+
+Please contact your system administrator.
+
+Reference: $ref
+
+EOM
 }
 
 ## extracts all header lines from a mail
@@ -493,6 +510,9 @@ sub buildAdminNotificationMailBody {
 	$tpl =~ s/{{errormessage}}/$errormessage/g;
 	$tpl =~ s/{{originaldestionations}}/$originaldestionations/g;
 	$tpl =~ s/{{interpreteddestinations}}/$interpreteddestionations/g;
+
+	my $ref = &generateReference();
+	$tpl =~ s/{{reference}}/$ref/g;
 
 	$header = "> ".join("\n> ",split /\n/, $header);
 

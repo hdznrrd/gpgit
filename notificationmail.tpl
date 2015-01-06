@@ -14,6 +14,9 @@ Error message:
 Headers:
 {{header}}
 
+Reference: {{reference}}
+
+
 Best regards,
 Cryptowrapper
 
