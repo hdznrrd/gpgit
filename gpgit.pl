@@ -35,9 +35,9 @@ use Time::HiRes;
 #	*CORE::GLOBAL::exit = sub { $exit_callback->(@_) };
 #}
 
-  my $failIfAlreadyEncrypted = 1;
-  my $loggingEnabled = 1;
-  my $debugDumpEachMail = 1;
+  my $fail_if_already_encrypted = 1;
+  my $logging_enabled = 1;
+  my $debug_dump_each_mail = 1;
 
 ## Parse args
   my $encrypt_mode   = 'pgpmime';
@@ -48,11 +48,11 @@ use Time::HiRes;
   my %rewrite_rules = ();
   my $dump_fails_to_mbox = 0;
   my $fail_mbox_file = "";
-  my $sysadminemail = "";
-  my $notificationmailtemplate = "";
+  my $sysadmin_email = "";
+  my $notification_email_template_file = "";
 
-  my $dumpprefix = "/var/log/exim4/mail-";
-  my $debuglogfile = "/var/log/exim4/cryptowrapper.debug.log";
+  my $email_dumpfile_prefix = "/var/log/exim4/mail-";
+  my $debug_logfile_name = "/var/log/exim4/cryptowrapper.debug.log";
 
   my @no_encrypt_to = ();
   {
@@ -78,17 +78,17 @@ use Time::HiRes;
 	push @no_encrypt_to, shift @args;
     } elsif( $key eq '--rewrite-config' ){
 	%rewrite_rules = %{ &rw_parse_config(&rw_read_config(shift @args)) };
-    } elsif( $key eq '--failurembox' ){
+    } elsif( $key eq '--failure-mbox-file' ){
         $dump_fails_to_mbox = 1;
         $fail_mbox_file = shift @args;
-    } elsif( $key eq '--sysadminemail') {
-	$sysadminemail = shift @args;	
-    } elsif( $key eq '--notificationmailtemplate') {
-	$notificationmailtemplate = shift @args;
-    } elsif( $key eq '--debuglogfile') {
-	$debuglogfile = shift @args;
-    } elsif( $key eq '--dumpprefix') {
-	$dumpprefix = shift @args;
+    } elsif( $key eq '--sysadmin-email') {
+	$sysadmin_email = shift @args;	
+    } elsif( $key eq '--notification-email-template') {
+	$notification_email_template_file = shift @args;
+    } elsif( $key eq '--debug-logfile') {
+	$debug_logfile_name = shift @args;
+    } elsif( $key eq '--email-dumpfile-prefix') {
+	$email_dumpfile_prefix = shift @args;
     } elsif( $key =~ /^.+\@.+$/ ){
        push @recipients, $key;
     } else {
@@ -173,7 +173,7 @@ else {
 
 ## Test if it is already encrypted
   if( $gpg->is_encrypted( $mime ) ){
-	if($failIfAlreadyEncrypted) {
+	if($fail_if_already_encrypted) {
      		&sendErrorMailAndLog("ERROR: email is already encrypted. This should not happen");
 	} else {
      		&log("INFO: mail is already encrypted");
@@ -376,10 +376,10 @@ sub getLoggingTime {
 
 ## Log a single line
 sub log {
-	if($loggingEnabled) {
+	if($logging_enabled) {
 		my $msg = shift;
      		print &getLoggingTime(), " - ", $msg, "$/";
-        	open(my $fh, ">>", "$debuglogfile");
+        	open(my $fh, ">>", "$debug_logfile_name");
         	print $fh &getLoggingTime(), " - ", $msg, "$/";
         	close($fh);
 	}
@@ -388,8 +388,8 @@ sub log {
 
 ## log a mail to an individual logfile
 sub dumpMail {
-	if($debugDumpEachMail) {
-		my $dumpname = "$dumpprefix".Time::HiRes::time;
+	if($debug_dump_each_mail) {
+		my $dumpname = "$email_dumpfile_prefix".Time::HiRes::time;
 		open(my $fh, ">>", "$dumpname");
 		if($fh) {
 			&log("DEBUG: logging mail to \"$dumpname\"");
@@ -447,7 +447,7 @@ sub extractHeaders {
 sub sendErrorMailAndLog {
 	my $errormsg = shift;
 	&log($errormsg);
-	&sendAdminNotificationMail($sysadminemail, $notificationmailtemplate, $errormsg, $originaldestinations, $interpreteddestinations, $header);
+	&sendAdminNotificationMail($sysadmin_email, $notification_email_template_file, $errormsg, $originaldestinations, $interpreteddestinations, $header);
 }
 
 ## generates an admin notification mail and tries to send it to the admin address
