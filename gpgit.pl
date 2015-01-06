@@ -30,6 +30,15 @@ use Mail::Field;
 use Data::Dumper;
 use Time::HiRes;
 
+#my $exit_callback = sub {  };
+#BEGIN {
+#	*CORE::GLOBAL::exit = sub { $exit_callback->(@_) };
+#}
+
+  my $failIfAlreadyEncrypted = 1;
+  my $loggingEnabled = 1;
+  my $debugDumpEachMail = 1;
+
 ## Parse args
   my $encrypt_mode   = 'pgpmime';
   my $inline_flatten = 0;
@@ -37,6 +46,12 @@ use Time::HiRes;
   my $gpg_home       = 0;
   my %gpg_params = ();
   my %rewrite_rules = ();
+  my $dump_fails_to_mbox = 0;
+  my $fail_mbox_file = "";
+  my $sysadminemail = "";
+  my $notificationmailtemplate = "";
+
+
   my @no_encrypt_to = ();
   {
      my @args = @ARGV;
@@ -47,7 +62,7 @@ use Time::HiRes;
     } elsif( $key eq '--encrypt-mode' ){
        $encrypt_mode = shift @args;
        unless( defined $encrypt_mode && grep( $encrypt_mode eq $_, 'prefer-inline', 'pgpmime', 'inline-or-plain' ) ){
-          die "Bad value for --encrypt-mode\n";
+         die "Bad value for --encrypt-mode\n";
        }
     } elsif( $key eq '--gpg-home' ){
         $gpg_params{'keydir'} = shift @args;
@@ -61,6 +76,13 @@ use Time::HiRes;
 	push @no_encrypt_to, shift @args;
     } elsif( $key eq '--rewrite-config' ){
 	%rewrite_rules = %{ &rw_parse_config(&rw_read_config(shift @args)) };
+    } elsif( $key eq '--failurembox' ){
+        $dump_fails_to_mbox = 1;
+        $fail_mbox_file = shift @args;
+    } elsif( $key eq '--sysadminemail') {
+	$sysadminemail = shift @args;	
+    } elsif( $key eq '--notificationmailtemplate') {
+	$notificationmailtemplate = shift @args;
     } elsif( $key =~ /^.+\@.+$/ ){
        push @recipients, $key;
     } else {
@@ -87,14 +109,21 @@ use Time::HiRes;
 
 &dumpMail($plain);
 
+my $header = &extractHeaders(@plain_lines);
 push @recipients, &getDestinations(@plain_lines);
+
+my $originaldestinations = join(', ', @recipients);
 
 @recipients = @{ &rw_rewrite_address_list(\@recipients, \%rewrite_rules) };
 
+my $interpreteddestinations = join(', ', @recipients);
+
+
 if(scalar @recipients > 0) {
         if(!&can_encrypt_to(\@recipients)){
-                &log("WARNING: not encrypting mail to blacklisted receipient: ".join(", ", @recipients));
-                print $plain;
+		&sendErrorMailAndLog("WARNING: not encrypting mail to blacklisted receipients: ".join(", ", @recipients));
+		&printToMbox($plain);
+		print &sanitizeMail($plain);
                 exit;
         }
         else {
@@ -102,8 +131,9 @@ if(scalar @recipients > 0) {
         }
 }
 else {
-        &log("ERROR: no receipient extracted from mail. Sending unencrypted. Dumping:$/".$plain."$/$/");
-        print $plain;
+	&sendErrorMailAndLog("ERROR: no receipient extracted from mail.");
+	&printToMbox($plain);
+	print &sanitizeMail($plain);
         exit;
 }
 
@@ -116,11 +146,12 @@ else {
   foreach( @recipients ){
      my $target = $_;
      unless( $gpg->has_public_key( $target ) ){
-	&log("ERROR: missing key for $target. Not encrypting mail!");
-	print $plain;
-        while(<STDIN>){
-           print;
-        }
+	&sendErrorMailAndLog("ERROR: missing key for $target. Not encrypting mail!");
+	&printToMbox($plain);
+	print &sanitizeMail($plain);
+        #while(<STDIN>){
+           #print;
+        #}
         exit 0;
      }
   }
@@ -136,8 +167,12 @@ else {
 
 ## Test if it is already encrypted
   if( $gpg->is_encrypted( $mime ) ){
-     &log("INFO: mail is already encrypted");
-     print $plain;
+	if($failIfAlreadyEncrypted) {
+     		&sendErrorMailAndLog("ERROR: email is already encrypted. This should not happen");
+	} else {
+     		&log("INFO: mail is already encrypted");
+     		print $plain;
+	}
      exit 0;
   }
 
@@ -195,11 +230,13 @@ else {
         if( $mime->mime_type =~ /^text\/plain/ ){
        $code = $gpg->ascii_encrypt( $mime, @recipients );
     } else {
+	# TODO: why is plain printed here?
        print $plain; exit 0;
     }
      }
 
      if( $code ){
+	# TODO: why is plain printed here?
         print $plain;
     exit 0;
      }
@@ -293,6 +330,9 @@ else {
      }
   }
 
+## extracts email destination address from header
+# param: email (array of strings, one line per element)
+# returns: array of email addresses
 sub getDestinations {
     my @mail = @_;
 
@@ -319,26 +359,137 @@ sub getDestinations {
 
 }
 
+## generate a logging timestamp
+# returns: timestamp (string)
 sub getLoggingTime {
     my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=localtime(time);
     my $nice_timestamp = sprintf ( "%04d-%02d-%02d %02d:%02d:%02d",
                                    $year+1900,$mon+1,$mday,$hour,$min,$sec);
     return $nice_timestamp;
 }
+
+## Log a single line
 sub log {
-        open(my $fh, ">>", "/var/log/exim4/cryptowrapper.debug.log");
-        print $fh &getLoggingTime(), " - ", shift, "$/";
-        close($fh);
+	if($loggingEnabled) {
+     		print &getLoggingTime(), " - ", shift, "$/";
+        	open(my $fh, ">>", "/var/log/exim4/cryptowrapper.debug.log");
+        	print $fh &getLoggingTime(), " - ", shift, "$/";
+        	close($fh);
+	}
 }
 
+
+## log a mail to an individual logfile
 sub dumpMail {
-        my $dumpname = "/var/log/exim4/mail-".Time::HiRes::time;
-        &log("DEBUG: logging mail to \"$dumpname\"");
-        open(my $fh, ">>", "$dumpname");
-        print $fh shift;
-        close($fh);
+	if($debugDumpEachMail) {
+		my $dumpname = "/var/log/exim4/mail-".Time::HiRes::time;
+		open(my $fh, ">>", "$dumpname");
+		if($fh) {
+			&log("DEBUG: logging mail to \"$dumpname\"");
+			print $fh shift;
+			close($fh);
+		} else {
+			&log("ERROR: failed to open \"$dumpname\": $!");
+		}
+	}
 }
 
+## log a mail by appending it to an mbox-like file
+sub writeToMbox {
+	if($dump_fails_to_mbox) {
+		my @mail = @_;
+		open(my $fh, ">>", "$fail_mbox_file");
+		if($fh) {
+			print $fh join("\n",@mail);
+			print $fh "\n";
+			close($fh);
+		} else {
+			&log("ERROR: failed to open mbox \"$fail_mbox_file\": $!");
+		}
+	}
+}
+
+## sanitize a mail by removing sensitive content
+sub sanitizeMail {
+	my @mail = @_;
+	return "\n\n";
+	# TODO: instead of sledge hammering it, rewrite the mail using
+	# the original destinations and a new subject and body.	
+}
+
+## extracts all header lines from a mail
+# param: mail (array of strings, one line per entry)
+# returns: headers (single string)
+sub extractHeaders {
+	my @mail = @_;
+	my $header = "";
+	while(my $line = shift @mail) {
+		chomp($line);
+		chomp($line);
+
+		# did we reach the newline separating header from body?
+		last if(length($line) == 0);
+
+		$header .= $line.$/;
+	}
+	return $header;
+}
+
+## fetches global variables to build and send an admin notification mail
+# param: error message (string)
+sub sendErrorMailAndLog {
+	my $errormsg = shift;
+	&log($errormessage);
+	&sendAdminNotificationMail($sysadminemail, $notificationmailtemplate, $errormessage, $originaldestinations, $interpreteddestinations, $header);
+}
+
+## generates an admin notification mail and tries to send it to the admin address
+# param: sysadmin email address (string or number 0 if no mail should be sent)
+# param: template filename (string)
+# param: error message (string)
+# param: original destination addresses (string)
+# param: interpreted destionation addresses (string)
+# param: headers of original email (string)
+sub sendAdminNotificationMail {
+	my $sysadminaddress = shift @_;
+
+	return if(!$sysadminaddress);
+
+	open(my $pipe, "|mail -s \"Failed to encrypt outgoing email\" $sysadminaddress");
+	if(!$pipe) {
+		&log("ERROR: failed to open pipe to 'mail': $!");
+		return;
+	}
+
+	print $pipe &buildAdminNotificationMailBody(@_);
+	close($pipe);
+}
+
+## builds the mail body of an admin notification mail
+# param: template filename (string)
+# param: error message (string)
+# param: original destination addresses (string)
+# param: interpreted destionation addresses (string)
+# param: headers of original email (string)
+sub buildAdminNotificationMailBody {
+	my ($tplfile, $errormessage, $originaldestionations, $interpreteddestionations, $header) = @_;
+
+	my $tpl = "";
+	open(my $fh, "<", $tplfile) or return "Cryptowrapper wanted to send you an email, letting you\nknow that encryption of an outgoing email failed.\nHowever, Cryptowrapper failed to open the template \"$tplfile\": $!\n\n";
+	while(<$fh>) {
+		$tpl .= $_;
+	}
+
+	$tpl =~ s/{{errormessage}}/$errormessage/g;
+	$tpl =~ s/{{originaldestionations}}/$originaldestionations/g;
+	$tpl =~ s/{{interpreteddestinations}}/$interpreteddestionations/g;
+
+	$header = "> ".join("\n> ",split /\n/, $header);
+
+	$tpl =~ s/{{header}}/$header/g;
+
+	return "$tpl\n";
+}
 
 ## rewrite addresses using the supplied rewrite rule hash lookup table
 # param: addresses (array ref)
