@@ -30,63 +30,59 @@ use Mail::Field;
 use Data::Dumper;
 use Time::HiRes;
 
-#my $exit_callback = sub {  };
-#BEGIN {
-#	*CORE::GLOBAL::exit = sub { $exit_callback->(@_) };
-#}
-
-  my $fail_if_already_encrypted = 1;
-  my $logging_enabled = 1;
-  my $debug_dump_each_mail = 1;
+my $fail_if_already_encrypted = 1;
+my $logging_enabled = 1;
+my $debug_dump_each_mail = 1;
 
 ## Parse args
-  my $encrypt_mode   = 'pgpmime';
-  my $inline_flatten = 0;
-  my @recipients     = ();
-  my $gpg_home       = 0;
-  my %gpg_params = ();
-  my %rewrite_rules = ();
-  my $dump_fails_to_mbox = 0;
-  my $fail_mbox_file = "";
-  my $sysadmin_email = "";
-  my $notification_email_template_file = "";
+my $encrypt_mode   = 'pgpmime';
+my $inline_flatten = 0;
+my @recipients     = ();
+my $gpg_home       = 0;
+my %gpg_params = ();
+my %rewrite_rules = ();
+my $dump_fails_to_mbox = 0;
+my $fail_mbox_file = "";
+my $sysadmin_email = "";
+my $notification_email_template_file = "";
 
-  my $email_dumpfile_prefix = "/var/log/exim4/mail-";
-  my $debug_logfile_name = "/var/log/exim4/cryptowrapper.debug.log";
+my $email_dumpfile_prefix = "/var/log/exim4/mail-";
+my $debug_logfile_name = "/var/log/exim4/cryptowrapper.debug.log";
 
-  my @no_encrypt_to = ();
-  {
-     my @args = @ARGV;
-     while( @args ){
-        my $key = shift @args;
-    if( $key eq '--help' || $key eq '-h' ){
-       help();
-    } elsif( $key eq '--encrypt-mode' ){
-       $encrypt_mode = shift @args;
-       unless( defined $encrypt_mode && grep( $encrypt_mode eq $_, 'prefer-inline', 'pgpmime', 'inline-or-plain' ) ){
-         die "Bad value for --encrypt-mode\n";
-       }
-    }
-	elsif( $key eq '--gpg-home' ) 			{ $gpg_params{'keydir'} = shift @args; }
-	elsif( $key eq '--gpg-path' )			{ $gpg_params{'gpg_path'} = shift @args; }
-	elsif( $key eq '--always-trust' )		{ $gpg_params{'always_trust'} = 1; }
-	elsif( $key eq '--inline-flatten' )		{ $inline_flatten = 1; }
-	elsif( $key eq '--no-encrypt-to' )		{ push @no_encrypt_to, shift @args; }
-	elsif( $key eq '--rewrite-config' )		{ %rewrite_rules = %{ &rw_parse_config(&rw_read_config(shift @args)) }; }
-	elsif( $key eq '--failure-mbox-file' )		{ $dump_fails_to_mbox = 1; $fail_mbox_file = shift @args; }
-	elsif( $key eq '--sysadmin-email')		{ $sysadmin_email = shift @args; }
-	elsif( $key eq '--notification-email-template') { $notification_email_template_file = shift @args; }
-	elsif( $key eq '--debug-logfile') 		{ $debug_logfile_name = shift @args; }
-	elsif( $key eq '--email-dumpfile-prefix')	{ $email_dumpfile_prefix = shift @args; }
-	elsif( $key =~ /^.+\@.+$/ )			{ push @recipients, $key; }
-	else {
-		die "Bad argument: $key\n";
+my @no_encrypt_to = ();
+
+{
+	my @args = @ARGV;
+     	while( @args ) {
+        	my $key = shift @args;
+    		if( $key eq '--help' || $key eq '-h' ) {
+			help();
+		}
+		elsif( $key eq '--encrypt-mode' )		{ $encrypt_mode = shift @args;
+							  	  unless( defined $encrypt_mode
+								  	  && grep( $encrypt_mode eq $_, 'prefer-inline', 'pgpmime', 'inline-or-plain' ) )
+									  { die "Bad value for --encrypt-mode\n"; }
+		}
+		elsif( $key eq '--gpg-home' ) 			{ $gpg_params{'keydir'} = shift @args; }
+		elsif( $key eq '--gpg-path' )			{ $gpg_params{'gpg_path'} = shift @args; }
+		elsif( $key eq '--always-trust' )		{ $gpg_params{'always_trust'} = 1; }
+		elsif( $key eq '--inline-flatten' )		{ $inline_flatten = 1; }
+		elsif( $key eq '--no-encrypt-to' )		{ push @no_encrypt_to, shift @args; }
+		elsif( $key eq '--rewrite-config' )		{ %rewrite_rules = %{ &rw_parse_config(&rw_read_config(shift @args)) }; }
+		elsif( $key eq '--failure-mbox-file' )		{ $dump_fails_to_mbox = 1; $fail_mbox_file = shift @args; }
+		elsif( $key eq '--sysadmin-email')		{ $sysadmin_email = shift @args; }
+		elsif( $key eq '--notification-email-template') { $notification_email_template_file = shift @args; }
+		elsif( $key eq '--debug-logfile') 		{ $debug_logfile_name = shift @args; }
+		elsif( $key eq '--email-dumpfile-prefix')	{ $email_dumpfile_prefix = shift @args; }
+		elsif( $key =~ /^.+\@.+$/ )			{ push @recipients, $key; }
+		else {
+			die "Bad argument: $key\n";
+		}
 	}
-     }
-     if( $inline_flatten && $encrypt_mode eq 'pgpmime' ){
-        die "inline-flatten option makes no sense with \"pgpmime\" encrypt-mode. See --help\n"
-     }
-  }
+	if( $inline_flatten && $encrypt_mode eq 'pgpmime' ){
+        	die "inline-flatten option makes no sense with \"pgpmime\" encrypt-mode. See --help\n"
+	}
+}
 ## Set the home environment variable from the user running the script
   $ENV{HOME} = (getpwuid($>))[7];
 
