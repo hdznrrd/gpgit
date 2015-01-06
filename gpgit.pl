@@ -31,6 +31,7 @@ use Data::Dumper;
 use Time::HiRes;
 use Mail::Box::Manager;
 use Mail::Box::Message;
+use File::Temp;
 
 my $fail_if_already_encrypted = 1;
 my $logging_enabled = 1;
@@ -429,10 +430,10 @@ sub writeToMbox {
 }
 
 sub generateReference {
-	my $timestamp = &getLoggingTime();
-	$timestamp .= "_".Time::HiRes::time;
-	$timestamp =~ s/[\s\-\:\.]/_/g;
-	return $timestamp;
+	my $tmp = mktemp("XXXXXXXX");
+	my $ts = &getLoggingTime();
+	$ts =~ s/[\s\:\-]//g;
+	return "${ts}_${tmp}";
 }
 
 ## sanitize a mail by removing sensitive content
