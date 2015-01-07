@@ -43,8 +43,6 @@ my $inline_flatten 	= 0;
 my @recipients     	= ();
 my $gpg_home       	= 0;
 my %gpg_params 		= ();
-my %rewrite_rules	= ();
-my $rewrite_rules_file	= "";
 my $dump_fails_to_mbox	= 1;
 my $sysadmin_email	= "";
 my $notification_email_template_file = "";
@@ -79,7 +77,6 @@ my @no_encrypt_to = ();
 		elsif( $key eq '--always-trust' )		{ $gpg_params{'always_trust'} = 1; }
 		elsif( $key eq '--inline-flatten' )		{ $inline_flatten = 1; }
 		elsif( $key eq '--no-encrypt-to' )		{ push @no_encrypt_to, shift @args; }
-		elsif( $key eq '--rewrite-config' )		{ $rewrite_rules_file = shift @args; }
 		elsif( $key eq '--failure-mbox-file' )		{ $dump_fails_to_mbox = 1; $fail_mbox_file = shift @args; }
 		elsif( $key eq '--sysadmin-email')		{ $sysadmin_email = shift @args; }
 		elsif( $key eq '--notification-email-template') { $notification_email_template_file = shift @args; }
@@ -102,7 +99,6 @@ my @no_encrypt_to = ();
 &lsEnsureWritableFileOrDoesNotExist($fail_mbox_file);
 &lsEnsureWritableFileOrDoesNotExist($debug_logfile_name) if($logging_enabled);
 &lsEnsureWritableFileOrDoesNotExist($email_dump_mbox_file) if($debug_dump_each_mail);
-&lsEnsureReadableFile($rewrite_rules_file) if(defined $rewrite_rules_file);
 &lsEnsureValidEmailAddress($sysadmin_email) if(defined $sysadmin_email);
 &lsEnsureReadableFile($notification_email_template_file) if(defined $notification_email_template_file);
 &lsEnsureValidEmailAddress($email_from);
@@ -110,7 +106,6 @@ my @no_encrypt_to = ();
 map { &lsEnsureValidEmailAddress($_) } @recipients;
 
 
-%rewrite_rules = %{ &rw_parse_config(&rw_read_config($rewrite_rules_file)) } if(defined $rewrite_rules_file);
 
 
 
@@ -129,12 +124,11 @@ my $plain = "";
 # just the email headers as string blob
 my $header = "";
 
-# a string comprised of the original addressees of the mail
-my $original_destinations = "";
+# a string comprised of the destination addressees of the mail
+my $destinations = "";
 
-# a string comprised of the interpreted addressees of the mail after applying rewrite rules
-my $interpreted_destinations = "";
-
+# a string containing the sender address
+my $origin = $email_from;
 
 
 &log("INFO: processing mail");
@@ -160,10 +154,7 @@ my @plain_lines = split '\n',$plain;
 $header = &extractHeaders(@plain_lines);
 
 push @recipients, &getDestinations(@plain_lines);
-$original_destinations = join(', ', @recipients);
-
-@recipients = @{ &rw_rewrite_address_list(\@recipients, \%rewrite_rules) };
-$interpreted_destinations = join(', ', @recipients);
+$destinations = join(', ', @recipients);
 
 if(scalar @recipients > 0) {
         if(!&can_encrypt_to(\@recipients)){
@@ -460,13 +451,12 @@ sub generateReference {
 sub generateWarningMail {
 	return <<EOM
 From: "Cryptowrapper <root\@lanl.p3ki.com>"
-Bcc: $original_destinations
+Bcc: $destinations
 Subject: WARNING: Encryption failure notification
 
-You're receiving this mail because a mail that was directed
-at you (and/or other parties) could not be encrypted for everyone.
 
-Please contact your system administrator.
+You're receiving this mail because "$origin" wanted to
+send you an email but I was not able to encrypt it.
 
 Reference: $reference
 
@@ -496,15 +486,15 @@ sub extractHeaders {
 sub sendErrorMailAndLog {
 	my $errormsg = shift;
 	&log($errormsg);
-	&sendAdminNotificationMail($sysadmin_email, $notification_email_template_file, $errormsg, $original_destinations, $interpreted_destinations, $header);
+	&sendAdminNotificationMail($sysadmin_email, $notification_email_template_file, $errormsg, $origin, $destinations, $header);
 }
 
 ## generates an admin notification mail and tries to send it to the admin address
 # param: sysadmin email address (string or number 0 if no mail should be sent)
 # param: template filename (string)
 # param: error message (string)
-# param: original destination addresses (string)
-# param: interpreted destionation addresses (string)
+# param: sender address (string)
+# param: destination addresses (string)
 # param: headers of original email (string)
 sub sendAdminNotificationMail {
 	my $sysadminaddress = shift @_;
@@ -528,11 +518,11 @@ sub sendAdminNotificationMail {
 ## builds the mail body of an admin notification mail
 # param: template filename (string)
 # param: error message (string)
-# param: original destination addresses (string)
-# param: interpreted destionation addresses (string)
+# param: sender address (string)
+# param: destination addresses (string)
 # param: headers of original email (string)
 sub buildAdminNotificationMailBody {
-	my ($tplfile, $errormessage, $originaldestionations, $interpreteddestionations, $header) = @_;
+	my ($tplfile, $errormessage, $origin, $destinations, $header) = @_;
 
 	my $tpl = "";
 	open(my $fh, "<", $tplfile) or return "Cryptowrapper wanted to send you an email, letting you\r\nknow that encryption of an outgoing email failed.\r\nHowever, Cryptowrapper failed to open the template \"$tplfile\": $!\r\n\r\n";
@@ -541,8 +531,8 @@ sub buildAdminNotificationMailBody {
 	}
 
 	$tpl =~ s/{{errormessage}}/$errormessage/g;
-	$tpl =~ s/{{originaldestionations}}/$originaldestionations/g;
-	$tpl =~ s/{{interpreteddestinations}}/$interpreteddestionations/g;
+	$tpl =~ s/{{destinations}}/$destinations/g;
+	$tpl =~ s/{{origin}}/$origin/g;
 
 	$tpl =~ s/{{reference}}/$reference/g;
 
@@ -553,31 +543,6 @@ sub buildAdminNotificationMailBody {
 	return "$tpl\r\n";
 }
 
-## rewrite addresses using the supplied rewrite rule hash lookup table
-# param: addresses (array ref)
-# param: rewriterules (hash ref, key: string, value: ref(array of strings))
-# returns: rewritten address list (array ref)
-sub rw_rewrite_address_list()
-{
-	my $addresses = shift;
-	my $rewriterules = shift;
-
-	my @lc_addresses = map {lc($_)}	@{$addresses};
-
-	# rewrite addresses
-	my @res  = map { $rewriterules->{$_} ? @{$rewriterules->{$_}} : $_; } @lc_addresses;
-	
-	# flatten array
-	@res = keys { map { $_ => 1 } @res };
-
-	if(!&is_address_array_effectively_the_same(\@res, \@lc_addresses))
-	{
-                &log("INFO: rewriting receipients list (pre): ".join(", ", @lc_addresses));
-                &log("INFO: rewriting receipients list (post): ".join(", ", @res));
-	}
-
-	return \@res;
-}
 
 ## parses an array of config lines into a hash lookup table
 # param: config file contents (array of strings in format "from: to1, to2, to3, ...")

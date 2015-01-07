@@ -3,11 +3,11 @@ following outgoing email failed.
 The original email was stored and has not been sent.
 The original receivers have been notified.
 
-Original destinations:
-{{originaldestionations}}
+Origin:
+{{origin}}
 
-Interpreted destinations:
-{{interpreteddestinations}}
+Destinations:
+{{destinations}}
 
 Error message:
 {{errormessage}}
