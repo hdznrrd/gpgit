@@ -406,7 +406,7 @@ sub generateReference {
 ## sanitize a mail by removing sensitive content
 sub generateWarningMail {
 	return <<EOM
-From: "Cryptowrapper <root\@lanl.p3ki.com>"
+From: "Cryptowrapper <$sysadmin_email>"
 Subject: WARNING: Encryption failure notification
 
 
