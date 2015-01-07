@@ -140,15 +140,12 @@ if($sanitize_extension_headers) {
 	$plain =~ s/^X\-.+?(\n\s\S.+?)*\n(?!\s\S)//mg;
 }
 
-my @plain_lines = split '\n',$plain;
-
-
 # dump the mail before we do anything to it.
 &writeToMbox($email_dump_mbox_file, $plain) if($debug_dump_each_mail);
 
 # we might have to send the admin an error report.
 # for this we want to include headers.
-$header = &extractHeaders(@plain_lines);
+$header = &extractHeaders($plain);
 
 $destinations = join(', ', @recipients);
 
@@ -426,18 +423,18 @@ EOM
 # param: mail (array of strings, one line per entry)
 # returns: headers (single string)
 sub extractHeaders {
-	my @mail = @_;
+	my @mail = split /\r?\n/, shift;
 	my $header = "";
-	while(my $line = shift @mail) {
-		chomp($line);
-		chomp($line);
-
-		# did we reach the newline separating header from body?
-		last if(length($line) == 0);
-
-		$header .= $line.$/;
-	}
-	return $header;
+        while(my $line = shift @mail) {
+                chomp($line);
+                chomp($line);
+ 
+                # did we reach the newline separating header from body?
+                last if(length($line) == 0);
+ 
+                $header .= $line."\r\n";
+        }
+        return $header;
 }
 
 ## fetches global variables to build and send an admin notification mail
