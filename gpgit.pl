@@ -58,8 +58,6 @@ my $email_from = "";
 
 my $reference		= &generateReference();
 
-my @no_encrypt_to = ();
-
 {
 	my @args = @ARGV;
      	while( @args ) {
@@ -76,7 +74,6 @@ my @no_encrypt_to = ();
 		elsif( $key eq '--gpg-path' )			{ $gpg_params{'gpg_path'} = shift @args; }
 		elsif( $key eq '--always-trust' )		{ $gpg_params{'always_trust'} = 1; }
 		elsif( $key eq '--inline-flatten' )		{ $inline_flatten = 1; }
-		elsif( $key eq '--no-encrypt-to' )		{ push @no_encrypt_to, shift @args; }
 		elsif( $key eq '--failure-mbox-file' )		{ $dump_fails_to_mbox = 1; $fail_mbox_file = shift @args; }
 		elsif( $key eq '--sysadmin-email')		{ $sysadmin_email = shift @args; }
 		elsif( $key eq '--notification-email-template') { $notification_email_template_file = shift @args; }
@@ -155,19 +152,8 @@ $header = &extractHeaders(@plain_lines);
 
 $destinations = join(', ', @recipients);
 
-if(scalar @recipients > 0) {
-        if(!&can_encrypt_to(\@recipients)){
-		&sendErrorMailAndLog("ERROR: some receipients blacklisted. Not sending email. ".join(", ", @recipients));
-		&writeToMbox($fail_mbox_file, $plain) if($dump_fails_to_mbox);
-		print &generateWarningMail();
-                exit 1;
-        }
-        else {
-                &log("INFO: encryping direct mail to ".join(", ", @recipients));
-        }
-}
-else {
-	&sendErrorMailAndLog("ERROR: no receipient extracted from mail. Not sending email.");
+if(scalar @recipients == 0) {
+	&sendErrorMailAndLog("ERROR: no receipients known for email.");
 	&writeToMbox($fail_mbox_file, $plain) if($dump_fails_to_mbox);
 	print &generateWarningMail();
         exit 1;
@@ -559,26 +545,6 @@ sub is_address_array_effectively_the_same()
 	}
 	return 1;
 }
-
-## check if we're dealing with a trivial local address (no at-sign) or something defined via --no-encrypt-to
-# param: recipient addresses ref(array of string)
-# return: 1 or 0
-sub can_encrypt_to()
-{
-	my $recp = shift;
-	foreach(@{$recp})
-	{
-		my $addr = $_;
-		return 0 if($addr !~ /\@/);
-		foreach(@no_encrypt_to)
-		{
-			my $blacklist = $_;
-			return 0 if($addr =~ /$blacklist/);
-		}
-	}
-	return 1;
-}
-
 
 
 sub help {
