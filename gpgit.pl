@@ -44,16 +44,19 @@ my @recipients     	= ();
 my $gpg_home       	= 0;
 my %gpg_params 		= ();
 my %rewrite_rules	= ();
+my $rewrite_rules_file	= "";
 my $dump_fails_to_mbox	= 1;
-my $fail_mbox_file	= "/var/log/exim4/failure.mbox";
 my $sysadmin_email	= "";
 my $notification_email_template_file = "";
-my $sanitize_bugzilla_headers	= 0;
+my $sanitize_extension_headers	= 0;
 
+my $fail_mbox_file		= "/var/log/exim4/failure.mbox";
 my $email_dump_mbox_file 	= "/var/log/exim4/dump.mbox";
 my $debug_logfile_name 		= "/var/log/exim4/cryptowrapper.debug.log";
 
 my $debug_no_send_mail	= 0;
+
+my $email_from = "";
 
 my $reference		= &generateReference();
 
@@ -76,14 +79,15 @@ my @no_encrypt_to = ();
 		elsif( $key eq '--always-trust' )		{ $gpg_params{'always_trust'} = 1; }
 		elsif( $key eq '--inline-flatten' )		{ $inline_flatten = 1; }
 		elsif( $key eq '--no-encrypt-to' )		{ push @no_encrypt_to, shift @args; }
-		elsif( $key eq '--rewrite-config' )		{ %rewrite_rules = %{ &rw_parse_config(&rw_read_config(shift @args)) }; }
+		elsif( $key eq '--rewrite-config' )		{ $rewrite_rules_file = shift @args; }
 		elsif( $key eq '--failure-mbox-file' )		{ $dump_fails_to_mbox = 1; $fail_mbox_file = shift @args; }
 		elsif( $key eq '--sysadmin-email')		{ $sysadmin_email = shift @args; }
 		elsif( $key eq '--notification-email-template') { $notification_email_template_file = shift @args; }
 		elsif( $key eq '--debug-logfile') 		{ $debug_logfile_name = shift @args; }
 		elsif( $key eq '--email-dump-mbox-file')	{ $email_dump_mbox_file = shift @args; }
-		elsif( $key eq '--sanitize-bugzilla-headers')	{ $sanitize_bugzilla_headers = 1; }
+		elsif( $key eq '--sanitize-extension-headers')	{ $sanitize_extension_headers = 1; }
 		elsif( $key eq '--debug-no-send-mail')		{ $debug_no_send_mail = 1; }
+		elsif( $key eq '--from')			{ $email_from = shift @args; }
 		elsif( $key =~ /^.+\@.+$/ )			{ push @recipients, $key; }
 		else {
 			die "Bad argument: $key\n";
@@ -93,6 +97,22 @@ my @no_encrypt_to = ();
         	die "inline-flatten option makes no sense with \"pgpmime\" encrypt-mode. See --help\n"
 	}
 }
+
+# Basic LANGSEC
+&lsEnsureWritableFileOrDoesNotExist($fail_mbox_file);
+&lsEnsureWritableFileOrDoesNotExist($debug_logfile_name) if($logging_enabled);
+&lsEnsureWritableFileOrDoesNotExist($email_dump_mbox_file) if($debug_dump_each_mail);
+&lsEnsureReadableFile($rewrite_rules_file) if(defined $rewrite_rules_file);
+&lsEnsureValidEmailAddress($sysadmin_email) if(defined $sysadmin_email);
+&lsEnsureReadableFile($notification_email_template_file) if(defined $notification_email_template_file);
+&lsEnsureValidEmailAddress($email_from);
+&lsEnsurePopulatedArray(\@recipients);
+map { &lsEnsureValidEmailAddress($_) } @recipients;
+
+
+%rewrite_rules = %{ &rw_parse_config(&rw_read_config($rewrite_rules_file)) } if(defined $rewrite_rules_file);
+
+
 
 ## Set the home environment variable from the user running the script
 $ENV{HOME} = (getpwuid($>))[7];
@@ -119,14 +139,14 @@ my $interpreted_destinations = "";
 
 &log("INFO: processing mail");
 
-if($sanitize_bugzilla_headers) {
-	&log("DEBUG: Sanitizing Bugzilla headers");
-	# matches any X-Bugzilla.... header including the rest of the line
+if($sanitize_extension_headers) {
+	&log("DEBUG: Sanitizing extension headers");
+	# matches any X-headers including the rest of the line
 	#   as well as the newline character.
 	# if the next line starts with whitespace + non-whitespace combo
 	# we're dealing with a line-broken long header entry.
 	# we're removing those as well.
-	$plain =~ s/^X-Bugzilla.+?(\n\s\S.+?)*\n(?!\s\S)//mg;
+	$plain =~ s/^X\-.+?(\n\s\S.+?)*\n(?!\s\S)//mg;
 }
 
 my @plain_lines = split '\n',$plain;
@@ -411,7 +431,7 @@ sub writeToMbox {
 	my $content = shift;
 	
 	# prepend our own reference
-	$content = "X-Cryptowrapper-Reference: $reference\n".$content;
+	$content = "X-Cryptowrapper-Reference: $reference\r\n".$content;
 
 	# now parse it into a message
 	my $mail = Mail::Box::Message->read($content);
@@ -515,7 +535,7 @@ sub buildAdminNotificationMailBody {
 	my ($tplfile, $errormessage, $originaldestionations, $interpreteddestionations, $header) = @_;
 
 	my $tpl = "";
-	open(my $fh, "<", $tplfile) or return "Cryptowrapper wanted to send you an email, letting you\nknow that encryption of an outgoing email failed.\nHowever, Cryptowrapper failed to open the template \"$tplfile\": $!\n\n";
+	open(my $fh, "<", $tplfile) or return "Cryptowrapper wanted to send you an email, letting you\r\nknow that encryption of an outgoing email failed.\r\nHowever, Cryptowrapper failed to open the template \"$tplfile\": $!\r\n\r\n";
 	while(<$fh>) {
 		$tpl .= $_;
 	}
@@ -526,11 +546,11 @@ sub buildAdminNotificationMailBody {
 
 	$tpl =~ s/{{reference}}/$reference/g;
 
-	$header = "> ".join("\n> ",split /\n/, $header);
+	$header = "> ".join("\r\n> ",split /\r?\n/, $header);
 
 	$tpl =~ s/{{header}}/$header/g;
 
-	return "$tpl\n";
+	return "$tpl\r\n";
 }
 
 ## rewrite addresses using the supplied rewrite rule hash lookup table
@@ -681,3 +701,58 @@ END_HELP
   exit 0;
 }
 
+# some simple LANGSEC tests
+sub lsEnsurePopulatedArray {
+	my $candidate = shift;
+	if(scalar @{$candidate} == 0) {
+		&log("ERROR: lsEnsurePopulatedArray failed on \"$candidate\"");
+		die;
+	}
+	return $candidate;
+}
+
+sub lsEnsureExecutable {
+	my $candidate = shift;
+	if(!-x $candidate or !-r $candidate) {
+		&log("ERROR: lsEnsureExecutable failed on \"$candidate\"");
+		die;
+	}
+	return $candidate;
+}
+
+sub lsEnsureReadablePath {
+	my $candidate = shift;
+	if(!-d $candidate) {
+		&log("ERROR: lsEnsureReadablePath failed on \"$candidate\"");
+		die;
+	}
+	&lsEnsureExecutable($candidate);
+	return $candidate;
+}
+
+sub lsEnsureWritableFileOrDoesNotExist {
+	my $candidate = shift;
+	if(-e $candidate and !-w $candidate) {
+		&log("ERROR: lsEnsureWritableFileOrDoesNotExist failed on \"$candidate\"");
+		die;
+	}
+	return $candidate;
+}
+
+sub lsEnsureReadableFile {
+	my $candidate = shift;
+	if(!-r $candidate) {
+		&log("ERROR: lsEnsureReadableFile failed on \"$candidate\"");
+		die;
+	}
+	return $candidate;
+}
+
+sub lsEnsureValidEmailAddress {
+	my $candidate = shift;
+	if ($candidate !~ /^[a-z0-9\!\#\$\%\&\'*+\/\=\?\^_\`\{\|\}\~\-]+(?:\.[a-z0-9!#\$\%\&\'\*\+\/\=\?\^_\`\{\|\}\~\-]+)*\@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)*?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/) {
+		&log("ERROR: lsEnsureValidEmailAddress \"$candidate\"");
+		die;
+	}
+	return $candidate;
+}
