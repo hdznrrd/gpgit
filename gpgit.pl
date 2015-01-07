@@ -257,7 +257,7 @@ my $mime;
      }
 
      if( $code ){
-	&sendErrorMailAndLog("ERROR: key error $destinations. Maybe its expired? Not sending email.");
+	&sendErrorMailAndLog("ERROR: key error $code for $destinations. Maybe an expired key? Not sending email.");
 	&writeToMbox($fail_mbox_file, $plain) if($dump_fails_to_mbox);
 	print &generateWarningMail();
     exit 1;
