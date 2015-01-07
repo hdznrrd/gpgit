@@ -153,7 +153,6 @@ my @plain_lines = split '\n',$plain;
 # for this we want to include headers.
 $header = &extractHeaders(@plain_lines);
 
-push @recipients, &getDestinations(@plain_lines);
 $destinations = join(', ', @recipients);
 
 if(scalar @recipients > 0) {
@@ -367,35 +366,6 @@ my $mime;
      }
   }
 
-## extracts email destination address from header
-# param: email (array of strings, one line per element)
-# returns: array of email addresses
-sub getDestinations {
-    my @mail = @_;
-
-    my @destinations = ();
-    my $header = Mail::Header->new(\@mail);
-    #foreach my $fieldname ('To', 'Cc', 'Bcc', 'Envelope-To')
-    #{
-    #    for(my $i=0; $i<$header->count($fieldname);++$i)
-    #    {
-    #        my $fc = $header->get($fieldname,$i);
-    #        # use static 'To' instead of $fieldname
-    #        # because 'Bcc' field has no addresses() function
-    #        my @addr = Mail::Field->new('To')->parse($fc)->addresses();
-    #        push @destinations, @addr;
-    #    }
-    #}
-
-    # the only relevant field is Received:.
-    # each recipient will trigger the filter once
-    my $tree = Mail::Field->new('Received')->parse($header->get('Received',0))->parse_tree();
-    push @destinations, $tree->{'for'}{'for'};
-#&log(Data::Dumper->Dump([$tree]));
-    return @destinations;
-
-}
-
 ## generate a logging timestamp
 # returns: timestamp (string)
 sub getLoggingTime {
@@ -451,7 +421,6 @@ sub generateReference {
 sub generateWarningMail {
 	return <<EOM
 From: "Cryptowrapper <root\@lanl.p3ki.com>"
-Bcc: $destinations
 Subject: WARNING: Encryption failure notification
 
 
