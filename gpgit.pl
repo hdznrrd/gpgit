@@ -415,6 +415,10 @@ send you an email but I was not able to encrypt it.
 
 Reference: $reference
 
+Best regards,
+Cryptowrapper
+
+
 EOM
 }
 
