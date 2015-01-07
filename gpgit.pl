@@ -249,15 +249,18 @@ my $mime;
         if( $mime->mime_type =~ /^text\/plain/ ){
        $code = $gpg->ascii_encrypt( $mime, @recipients );
     } else {
-	# TODO: why is plain printed here?
-       print $plain; exit 0;
+	&sendErrorMailAndLog("ERROR: encryption mode failure: \"$encrypt_mode\". Not sending email.");
+	&writeToMbox($fail_mbox_file, $plain) if($dump_fails_to_mbox);
+	print &generateWarningMail();
+        exit 1;
     }
      }
 
      if( $code ){
-	# TODO: why is plain printed here?
-        print $plain;
-    exit 0;
+	&sendErrorMailAndLog("ERROR: key error $destinations. Maybe its expired? Not sending email.");
+	&writeToMbox($fail_mbox_file, $plain) if($dump_fails_to_mbox);
+	print &generateWarningMail();
+    exit 1;
      }
   }
 
